@@ -1,0 +1,32 @@
+{
+  "name": "simple-command",
+  "version": "0.1.0",
+  "description": "Simply invokie a CLI command from a Node script.",
+  "main": "SimpleCommand.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PointSource/simple-command.git"
+  },
+  "keywords": [
+    "cli",
+    "command",
+    "spawn",
+    "invoke",
+    "shell",
+    "shell",
+    "script"
+  ],
+  "author": "Sean P Kennedy (PointSource)",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/PointSource/simple-command/issues"
+  },
+  "homepage": "https://github.com/PointSource/simple-command",
+  "dependencies": {
+    "q": "^1.1.2",
+    "simple-log-tee": "^0.1.1"
+  }
+}
