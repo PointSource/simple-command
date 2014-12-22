@@ -142,8 +142,7 @@ SimpleCommand.prototype.run = function (options, callback) {
 					output.progressTee.write(data);
 				}
 				// write a progress indicator, if requested
-				if (chunks && chunkCount % chunks === 0) {
-					chunkCount++;
+				if (chunks && chunkCount++ % chunks === 0) {
 					output.progressTee.write('#');
 				}
 			}
