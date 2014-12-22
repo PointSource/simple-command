@@ -64,8 +64,9 @@ function findWindowsExec(exec) {
 * @param options.redirect filename to which all command output should be sent,
 *		if null or undefined it will got to stdout/stderr
 * @param options.progress boolean indicating whether to output status/progess messages,
-*		or a number, which turns on messages, and indicates how many lines of command output should be
-*		represented as a single '#' in the output.
+*		or a number (>0), which turns on messages, and indicates how many 'chunks' of output data should
+*		be represented as a single '#' in the output. If options.progress is a number and
+*		options.redirect is not set, output will be sent to a temporary file.
 *		(Combine with options.redirect to have the command output saved to a file and still give
 *			some progress indication to the user.)
 * @param options.record filename to which the contents of stdout/stderr should be sent
@@ -98,44 +99,54 @@ SimpleCommand.prototype.run = function (options, callback) {
 	} else {
 		command.setOptions(options);
 	}
-	var streams = _setStreams(options);
+	var output = _setOutput(command.options);
 	var commandLine = util.format('%s %s', command.exec, command.args.join(' '));
+
 	if (command.options.progress) {
-
+		var workpath = command.workdir === path.resolve(command.workdir) ?
+			command.workdir : path.relative('./',command.workdir);
+		output.progressTee.log('From %s, invoking command:\n%s', workpath, commandLine);
 	}
-
-	progress.log('From %s, invoking command:\n%s', path.relative('./',command.workdir), commandLine);
 	var child;
-	if (command.logfile) {
-		progress.log('SimpleCommand output will be captured in', path.relative('./', command.logfile));
-		var ticks = 25;
-		var cmdLogStream = fs.createWriteStream(command.logfile);
-		cmdLogStream.on('error', function(err) {
-			progress.log('\nWriting log file failed.');
-			progress.log(err);
-			cmdLogStream.end();
+	if (output.redirectStream) {
+		var reportingProgressAndRedirectingToAFile =
+			command.options.progress && command.options.redirect;
+		if (reportingProgressAndRedirectingToAFile) {
+			output.progressTee.log(
+				'Command output will be captured in', path.relative('./', command.options.redirect));
+		}
+		output.redirectStream.on('error', function(err) {
+			if (reportingProgressAndRedirectingToAFile) {
+				output.progressTee.log('\nWriting to redirect file %s failed.', command.options.redirect);
+				output.redirectStream.end();
+			}
+			output.progressTee.log(err);
 		});
-		cmdLogStream.on('open', function(fd) {
+		output.redirectStream.on('open', function(fd) {
 			child = _doSpawn('pipe');
-			var outCount = 0;
 			child.stdout.on('data', function(data) {
-				cmdLogStream.write(data);
-				if (++outCount % ticks === 0) {
-					progress.write('=');
-				}
+				__doProgress(data);
 			});
-			var errCount = 0;
 			child.stderr.on('data', function(data) {
-				cmdLogStream.write(data);
-				if (++outCount % ticks === 0) {
-					progress.write('-');
-				}
-			});
-			child.on('exit', function(code) {
-				progress.log('\nDone:', commandLine);
-				cmdLogStream.end();
+				__doProgress(data);
 			});
 			_installCallback(child);
+
+			var chunks = command.options.progress === true ? 0 : command.options.progress;
+			var chunkCount = 0;
+			function __doProgress(data) {
+				// write the command's output somewhere
+				if (command.options.redirect) {
+					output.redirectStream.write(data);
+				} else if (typeof command.options.progress !== 'number') {
+					output.progressTee.write(data);
+				}
+				// write a progress indicator, if requested
+				if (chunks && chunkCount % chunks === 0) {
+					chunkCount++;
+					output.progressTee.write('#');
+				}
+			}
 		});
 	} else {
 		child = _doSpawn('inherit');
@@ -143,33 +154,54 @@ SimpleCommand.prototype.run = function (options, callback) {
 	}
 	return child;
 
-	function _setStreams(options) {
-		var streams = {};
-		streams.redirect = options.redirect ? fs.createWriteStream(options.redirect) : null;
+	function _setOutput(options) {
+		var output = {};
+		output.progressTee = options.record ? stee.createLogFileTee(options.record) :
+			stee.teeToStdoutOnly();
 		if (options.redirect) {
-			streams.redirect = fs.createWriteStream(options.redirect);
+			output.redirectStream = fs.createWriteStream(path.resolve(options.redirect));
+		} else if (options.record) {
+			output.redirectStream = output.progressTee.getFileStream();
+		} else if (options.progress !== true && options.progress > 0) {
+			output.redirectStream = fs.createWriteStream(util.format(
+				'%s/simple-command_%s-%s.log', process.env.TMPDIR, command.exec, Date.now()));
+		} else {
+			output.redirectStream = null;
 		}
+		return output;
 	}
 
 	function _doSpawn(_stdio) {
-		var child = childProcess.spawn(command.exec, command.args,
-		{cwd: path.relative('./', command.workdir), env: process.env, stdio: _stdio});
+		var options = {
+			cwd: path.relative('./', command.workdir),
+			env: process.env,
+			stdio: _stdio
+		};
+		var child = childProcess.spawn(command.exec, command.args, options);
 		return child;
 	}
 
 	function _installCallback(child) {
 		var _callback = callback;
 		child.on('exit', function(code) {
+			if (command.options.progress) {
+				output.progressTee.log('\nDone', commandLine);
+			}
 			_doCallback(code);
 		});
 		child.on('error', function(err) {
-			progress.log('Error running "%s"', commandLine);
-			progress.log(err);
+			if (command.options.progress) {
+				output.progressTee.log('\nError running', commandLine);
+			}
+			output.progressTee.log(err);
 			_doCallback(-1);
 		});
 		return child;
 
 		function _doCallback(code) {
+			if (output.redirectStream) {
+				output.redirectStream.end();
+			}
 			if (_callback) {
 				_callback = null;
 				callback(code);
