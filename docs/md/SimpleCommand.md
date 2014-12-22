@@ -10,7 +10,6 @@ Defines a command to run in the shell.
 * exec the program to run
 * args an array of arguments to pass to the program
 * workdir the working directory for running the command
-* * *
 
 
 ###SimpleCommand.prototype.setOptions = function (options)###
@@ -37,7 +36,7 @@ some progress indication to the user.)
 Can be used instead of options.redirect if command output should be seen by the user and
 sent to a file. If used with both options.redirect and options.reportProgress, it will be
 the output defined through options.reportProgress that is saved to the record file.
-* * *
+
 
 ###SimpleCommand.prototype.run = function (options, callback)###
 
@@ -48,4 +47,3 @@ Runs the command. All parameters optional.
 * options (optional) if not provided, uses options previously set through setOptions(),
 or the default if nothing has been set before; to force a reset, pass `null`.
 * callback (optional) a function to run when the command completes.
-* * *
