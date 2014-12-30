@@ -184,9 +184,13 @@ SimpleCommand.prototype.run = function (options, callback) {
 
 	function _installCallback(child) {
 		var _callback = callback;
-		child.on('exit', function(code) {
+		child.on('exit', function(code, signal) {
 			if (command.options.progress) {
-				output.progressTee.log('\nDone', commandLine);
+				if (signal) {
+					output.progressTee.log('\nCommand stopped due to signal:', signal);
+				} else {
+					output.progressTee.log('\nDone', commandLine);
+				}
 			}
 			_doCallback(code);
 		});
@@ -197,12 +201,14 @@ SimpleCommand.prototype.run = function (options, callback) {
 			output.progressTee.log(err);
 			_doCallback(-1);
 		});
-		return child;
-
-		function _doCallback(code) {
+		child.on('close', function () {
 			if (output.redirectStream) {
 				output.redirectStream.end();
 			}
+		});
+		return child;
+
+		function _doCallback(code) {
 			if (_callback) {
 				_callback = null;
 				callback(code);
