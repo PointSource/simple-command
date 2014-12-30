@@ -1,6 +1,6 @@
 # simple-command
 
-Simply invoke a CLI command from a Node script
+Simply start a new process from a Node script.
 
 ## usage
 

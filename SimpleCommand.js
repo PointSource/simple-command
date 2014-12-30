@@ -11,6 +11,7 @@ module.exports = SimpleCommand;
  *
  * @param exec the program to run
  * @param args an array of arguments to pass to the program
+ * __Note:__ the program is executed directly, i.e. no subshell is launched to process globs in args
  * @param workdir the working directory for running the command
 */
 function SimpleCommand(exec, args, workdir) {

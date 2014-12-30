@@ -8,7 +8,8 @@ Defines a command to run in the shell.
 ####Parameters####
 
 * exec the program to run
-* args an array of arguments to pass to the program
+* args an array of arguments to pass to the program  
+	__Note:__ the program is executed directly, i.e. no subshell is launched to process globs in args
 * workdir the working directory for running the command
 
 
