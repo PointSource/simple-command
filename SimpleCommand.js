@@ -7,18 +7,20 @@ var util = require('util');
 module.exports = SimpleCommand;
 
 /**
- * Defines a command to run in the shell.
+ * SimpleCommand - Constructs a command to run.
  *
- * @param exec the program to run
- * @param args an array of arguments to pass to the program
+ * @param  {string} **exec**    the program to run
+ * @param  {array} **args**    arguments to pass to the program <br/>
  * __Note:__ the program is executed directly, i.e. no subshell is launched to process globs in args
- * @param workdir the working directory for running the command
-*/
+ * @param  {string} **workdir** working directory from which to run the command
+ *
+ */
 function SimpleCommand(exec, args, workdir) {
 	this.exec = /^win/.test(process.platform) ? findWindowsExec(exec) : exec;
 	this.args = args;
 	this.workdir = workdir;
 	this.setOptions();
+	this.commandLine = util.format('%s %s', this.exec, this.args.join(' '));
 }
 
 function findWindowsExec(exec) {
@@ -54,27 +56,29 @@ function findWindowsExec(exec) {
 }
 
 /**
-* Sets the options for the command (can also be done on the run() call).
-*
-* @param options (optional) an object, or nothing, in which case we get this default:
-*		{
-*			redirect: undefined,
-*			progress: false,
-*			record: undefined
-*		}
-* @param options.redirect filename to which all command output should be sent,
-* if null or undefined it will got to stdout/stderr
-* @param options.progress boolean indicating whether to output status/progess messages,
-* or a number (>0), which turns on messages, and indicates how many 'chunks' of output data should
-* be represented as a single '#' in the output. If options.progress is a number and
-* options.redirect is not set, output will be sent to a temporary file.
-* (Combine with options.redirect to have the command output saved to a file and still give
-* some progress indication to the user.)
-* @param options.record filename to which the contents of stdout/stderr should be sent.
-* Can be used instead of options.redirect if command output should be seen by the user and
-* sent to a file. If used with both options.redirect and options.reportProgress, it will be
-* the output defined through options.reportProgress that is saved to the record file.
-*/
+ * SimpleCommand.setOptions - Sets the output control options for the command.
+ *
+ * @param {object} **options** (optional) if not provided we get this default:
+ *		{
+ *			redirect: undefined,
+ *			progress: false,
+ *			record: undefined
+ *		}
+ * @param {string} **options.redirect** filename to which all command output should be sent,
+ * if null or undefined it will go to the parent's stdout/stderr,
+ * unless modified by **options.progress**
+ * @param {object} **options.progress** a _boolean_ indicating whether to output status/progess
+ * messages, or a positive _integer_, which turns on messages, and indicates how many 'chunks' of
+ * output data should be represented as a single '#' in the output. <br/>
+ * (Combine an _integer_ in this field with **options.redirect** to have the command output saved
+ * to a file and still give some progress indication to the user.)
+ * @param {string} **options.record** name of a file to which a copy of everything sent to the
+ * parent's stdout/stderr should be recorded, or an existing _simple-log-tee_ to use. <br/>
+ * Can be used instead of **options.redirect** if command output should be seen by the user and
+ * sent to a file. If used with both **options.redirect** and **options.progress**, it will be
+ * the output defined through **options.progress** that is sent to the record.
+ *
+ */
 SimpleCommand.prototype.setOptions = function (options) {
 	if (!options)  {
 		this.options = {
@@ -85,134 +89,182 @@ SimpleCommand.prototype.setOptions = function (options) {
 	} else {
 		this.options = options;
 	}
+	// knowing the options, we can set the stdioType
+	if (!this.options.redirect &&
+		!this.options.progress &&
+		!this.options.record) {
+		// the default: simply have the child inherit the parent's stdio
+		this.stdioType = 'inherit';
+	} else if (this.options.redirect &&
+		typeof this.options.progress !== 'number' &&
+		!this.options.record) {
+		// we're redirecting the output to a file and don't need to capture/monitor the child's output
+		this.stdioType = 'stream';
+	} else {
+		// we're doing something that requires acting on the child's stdout/stderr
+		this.stdioType = 'pipe';
+	}
+
 };
 
 /**
-* Runs the command. All parameters optional.
-*
-* @param options (optional) if not provided, uses options previously set through setOptions(),
-* or the default if nothing has been set before; to force a reset, pass `null`.
-* @param callback (optional) a function to run when the command completes.
-*/
+ * SimpleCommand.run - Runs the command.
+ *
+ * @param  {object} **options**  (optional) if not provided, uses options previously set through
+ * `SimpleCommand.setOptions()`, or the default if nothing has been set before.
+ * To force a reset, pass `null`.
+ * @param  {function} callback (optional) a function to run when the command completes.
+ *
+ */
 SimpleCommand.prototype.run = function (options, callback) {
-	var command = this;
 	if (options === undefined || typeof options === 'function') {
 		callback = options;
 	} else {
-		command.setOptions(options);
+		this.setOptions(options);
 	}
-	var output = _setOutput(command.options);
-	var commandLine = util.format('%s %s', command.exec, command.args.join(' '));
+	this._setupOutput();
 
-	if (command.options.progress) {
-		var workpath = command.workdir === path.resolve(command.workdir) ?
-			command.workdir : path.relative('./',command.workdir);
-		output.progressTee.log('From %s, invoking command:\n%s', workpath, commandLine);
+	if (this.options.progress) {
+		var workpath = (this.workdir === path.resolve(this.workdir)) ?
+			this.workdir : path.relative('./', this.workdir);
+		this.output.progressTee.log('From %s, invoking command:\n%s', workpath, this.commandLine);
 	}
-	var child;
-	if (output.redirectStream) {
-		var reportingProgressAndRedirectingToAFile =
-			command.options.progress && command.options.redirect;
-		if (reportingProgressAndRedirectingToAFile) {
-			output.progressTee.log(
-				'Command output will be captured in', path.relative('./', command.options.redirect));
-		}
-		output.redirectStream.on('error', function(err) {
-			if (reportingProgressAndRedirectingToAFile) {
-				output.progressTee.log('\nWriting to redirect file %s failed.', command.options.redirect);
-				output.redirectStream.end();
-			}
-			output.progressTee.log(err);
+
+	if (this.options.progress && this.options.redirect) {
+		this.output.progressTee.log(
+			'Command output will be captured in', path.relative('./', this.options.redirect));
+	}
+	var runfn = (this.stdioType === 'pipe') ? _runWithProgress : _runWithoutProgress;
+	if (this.output.redirectStream) {
+		// only spawn after the stream is open, and listen for errors on the redirect stream
+		var command = this;
+		this.output.redirectStream.on('open', function(fd) {
+			runfn(command);
 		});
-		output.redirectStream.on('open', function(fd) {
-			child = _doSpawn('pipe');
-			child.stdout.on('data', function(data) {
-				__doProgress(data);
-			});
-			child.stderr.on('data', function(data) {
-				__doProgress(data);
-			});
-			_installCallback(child);
-
-			var chunks = command.options.progress === true ? 0 : command.options.progress;
-			var chunkCount = 0;
-			function __doProgress(data) {
-				// write the command's output somewhere
-				if (command.options.redirect) {
-					output.redirectStream.write(data);
-				} else if (typeof command.options.progress !== 'number') {
-					output.progressTee.write(data);
-				}
-				// write a progress indicator, if requested
-				if (chunks && chunkCount++ % chunks === 0) {
-					output.progressTee.write('#');
-				}
+		this.output.redirectStream.on('error', function(err) {
+			if (command.options.progress) {
+				command.output.progressTee.log(
+					'\nWriting to redirect file %s failed.', command.options.redirect);
 			}
+			if (command.stdioType === 'pipe') {
+				// we're responsible for closing the stream
+				command.output.redirectStream.end();
+			}
+			command.output.progressTee.log(err);
 		});
 	} else {
-		child = _doSpawn('inherit');
-		_installCallback(child);
+		runfn(this);
 	}
+	return;
+
+
+	function _runWithProgress(command) {
+		var chunks = command.options.progress === true ? 0 : command.options.progress;
+		var chunkCount = 0;
+		var child = command._doSpawn('pipe');
+		child.stdout.on('data', function(data) {
+			__doProgress(data);
+		});
+		child.stderr.on('data', function(data) {
+			__doProgress(data);
+		});
+		command._installCallback(child, callback);
+		return;
+
+		function __doProgress(data) {
+			// write the command's output somewhere
+			if (command.options.redirect) {
+				command.output.redirectStream.write(data);
+			} else if (typeof command.options.progress !== 'number') {
+				// we're not redirecting, and we're not hashing,
+				// we write command output to the progress tee
+				command.output.progressTee.write(data);
+			}
+			// write a progress indicator every 'chunks' time, if requested
+			if (chunks && chunkCount++ % chunks === 0) {
+				command.output.progressTee.write('#');
+			}
+		}
+	}
+
+	function _runWithoutProgress(command) {
+		var stdio;
+		if (command.stdioType === 'stream') {
+			stdio = [0, command.output.redirectStream, command.output.redirectStream];
+		} else {
+			stdio = 'inherit';
+		}
+		var child = command._doSpawn(stdio);
+		command._installCallback(child, callback);
+		return;
+	}
+};
+
+SimpleCommand.prototype._setupOutput = function () {
+	this.output = {};
+	// set the progress stee
+	if (typeof this.options.record === 'object') {
+		// assume it is an existing stee
+		this.output.progressTee = this.options.record;
+	} else if (typeof this.options.record === 'string') {
+		// it's a filepath
+		this.output.progressTee = stee.createLogFileTee(this.options.record);
+	} else {
+		// just send progress to stdout
+		this.output.progressTee = stee.teeToStdoutOnly();
+	}
+	// set the redirect stream
+	if (this.options.redirect) {
+		// redirect all stdio to a new file
+		this.output.redirectStream = fs.createWriteStream(path.resolve(this.options.redirect));
+	} else {
+		this.output.redirectStream = null;
+	}
+};
+
+SimpleCommand.prototype._doSpawn = function (stdio) {
+	var spawnopts = {
+		cwd: path.relative('./', this.workdir),
+		env: process.env,
+		stdio: stdio
+	};
+	return childProcess.spawn(this.exec, this.args, spawnopts);
+};
+
+SimpleCommand.prototype._installCallback = function (child, callback) {
+	var command = this;
+	child.on('exit', function(code, signal) {
+		if (command.options.progress) {
+			command.output.progressTee.log('\nDone', command.commandLine);
+		}
+		if (signal) {
+			command.output.progressTee.log('\nCommand stopped by signal:', signal);
+		}
+		__doCallback(code);
+	});
+	child.on('error', function(err) {
+		if (command.options.progress) {
+			command.output.progressTee.log('\nError running', command.commandLine);
+		}
+		command.output.progressTee.log(err);
+		__doCallback(-1);
+	});
+	// child.on('close', function () {
+	// 	if (command.output.redirectStream && command.stdioType === 'pipe') {
+	// 		// we're responsible for closing the redirect stream
+	// 		console.log('closing stream:', command.output.redirectStream);
+	// 		process.nextTick(function () {
+	// 			command.output.redirectStream.end();
+	// 		});
+	// 	}
+	// });
 	return child;
 
-	function _setOutput(options) {
-		var output = {};
-		output.progressTee = options.record ? stee.createLogFileTee(options.record) :
-			stee.teeToStdoutOnly();
-		if (options.redirect) {
-			output.redirectStream = fs.createWriteStream(path.resolve(options.redirect));
-		} else if (options.record) {
-			output.redirectStream = output.progressTee.getFileStream();
-		} else if (options.progress !== true && options.progress > 0) {
-			output.redirectStream = fs.createWriteStream(util.format(
-				'%s/simple-command_%s-%s.log', process.env.TMPDIR, command.exec, Date.now()));
-		} else {
-			output.redirectStream = null;
-		}
-		return output;
-	}
-
-	function _doSpawn(_stdio) {
-		var options = {
-			cwd: path.relative('./', command.workdir),
-			env: process.env,
-			stdio: _stdio
-		};
-		var child = childProcess.spawn(command.exec, command.args, options);
-		return child;
-	}
-
-	function _installCallback(child) {
-		var _callback = callback;
-		child.on('exit', function(code, signal) {
-			if (command.options.progress) {
-				if (signal) {
-					output.progressTee.log('\nCommand stopped due to signal:', signal);
-				} else {
-					output.progressTee.log('\nDone', commandLine);
-				}
-			}
-			_doCallback(code);
-		});
-		child.on('error', function(err) {
-			if (command.options.progress) {
-				output.progressTee.log('\nError running', commandLine);
-			}
-			output.progressTee.log(err);
-			_doCallback(-1);
-		});
-		child.on('close', function () {
-			if (output.redirectStream) {
-				output.redirectStream.end();
-			}
-		});
-		return child;
-
-		function _doCallback(code) {
-			if (_callback) {
-				_callback = null;
-				callback(code);
-			}
+	function __doCallback(code) {
+		if (callback) {
+			var cb = callback;
+			callback = null;
+			cb(code);
 		}
 	}
 };
