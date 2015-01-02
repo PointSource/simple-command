@@ -1,7 +1,7 @@
 {
   "name": "simple-command",
   "version": "0.1.2",
-  "description": "Simply invokie a CLI command from a Node script.",
+  "description": "Simply start a new process from a Node script.",
   "main": "SimpleCommand.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -15,7 +15,6 @@
     "command",
     "spawn",
     "invoke",
-    "shell",
     "shell",
     "script"
   ],
