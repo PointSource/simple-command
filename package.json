@@ -1,6 +1,6 @@
 {
   "name": "simple-command",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Simply start a new process from a Node script.",
   "main": "SimpleCommand.js",
   "scripts": {
