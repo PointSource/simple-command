@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
+var stee = require('simple-log-tee');
 var Command = require('../');
 
 var commands = [
-	new Command('ls', ['-l'], '/etc'),
+	new Command('ls', ['-lRA'], '..')/*,
 	new Command('grep', ['sh', '-r', '/usr/bin'], './'),
-	new Command('npm', ['update'], './')
+	new Command('npm', ['update'], './')*/
 ];
 
 doTests(commands);
@@ -19,7 +20,7 @@ function doTests(commands) {
 
 	function testDefault() {
 		console.log('** default');
-		command.run(testRedirect);
+		command.run(testRecord);
 	}
 
 	function testRedirect(code) {
@@ -82,7 +83,22 @@ function doTests(commands) {
 			record: command.exec + '_record-progress_3.out',
 			progress: 3
 		});
-		command.run(testRecordProgressRedirect);
+		command.run(testRecordProgressToExistingTee);
+	}
+
+	function testRecordProgressToExistingTee(code) {
+		console.log('return code:', code);
+		console.log('** redirect to existing tee');
+		var record = stee.createLogFileTee(command.exec + '_record-progress-2tee.out');
+		record.log('using an existing record ...');
+		command.setOptions({
+			record: record,
+			progress: true
+		});
+		command.run(function (code) {
+			record.log('... done recording');
+			testRecordProgressRedirect(code);
+		});
 	}
 
 	function testRecordProgressRedirect(code) {

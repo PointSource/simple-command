@@ -249,15 +249,6 @@ SimpleCommand.prototype._installCallback = function (child, callback) {
 		command.output.progressTee.log(err);
 		__doCallback(-1);
 	});
-	// child.on('close', function () {
-	// 	if (command.output.redirectStream && command.stdioType === 'pipe') {
-	// 		// we're responsible for closing the redirect stream
-	// 		console.log('closing stream:', command.output.redirectStream);
-	// 		process.nextTick(function () {
-	// 			command.output.redirectStream.end();
-	// 		});
-	// 	}
-	// });
 	return child;
 
 	function __doCallback(code) {
